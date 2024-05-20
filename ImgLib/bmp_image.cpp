@@ -40,7 +40,9 @@ static_assert(sizeof(BitmapInfoHeader) == 40);
 
 // функция вычисления отступа по ширине
 static int GetBMPStride(int w) {
-    return 4 * ((w * 3 + 3) / 4);
+    const int pull_factor{4};
+    const int colors{3};
+    return pull_factor * ((w * colors + (pull_factor - 1)) / pull_factor);
 }
 
 // напишите эту функцию
@@ -62,6 +64,10 @@ bool SaveBMP(const Path& file, const Image& image) {
 
     out.write(reinterpret_cast<const char*>(&file_header), sizeof(file_header));
 
+    if (out.fail()) {
+        return false;
+    }
+
     /// Запись File Header
     info_header.info_size = 40u;
     info_header.planes = 1u;
@@ -77,6 +83,10 @@ bool SaveBMP(const Path& file, const Image& image) {
 
     out.write(reinterpret_cast<const char*>(&info_header), sizeof(info_header));
 
+    if (out.fail()) {
+        return false;
+    }
+
     /// Запись изображения
     vector<char> buffer(stride);
     for (int i = 0; i < image.GetHeight(); ++i) {
@@ -87,6 +97,9 @@ bool SaveBMP(const Path& file, const Image& image) {
             buffer[j * 3 + 2] = static_cast<char>(line[j].r);
         }
         out.write(buffer.data(), stride);
+        if (out.fail()) {
+            return false;
+        }
     }
 
     return true;
@@ -101,30 +114,53 @@ Image LoadBMP(const Path& file) {
     
     ifs.read(reinterpret_cast<char*>(&file_header), sizeof(file_header));
     
-    assert(file_header.signature[0] == 'B' && file_header.signature[1] == 'M');
-    assert(file_header.buf == 0u);
-    assert(file_header.step == 54u);
+    if (ifs.fail()) {
+        return {};
+    }
+
+    bool check_file_header {
+        (file_header.signature[0] == 'B' && file_header.signature[1] == 'M') &&
+        (file_header.buf == 0u) &&
+        (file_header.step == 54u)
+    };
+
+    if (!check_file_header) {
+        return {};
+    }
 
     /// Чтение Info Header
     BitmapInfoHeader info_header;
 
     ifs.read(reinterpret_cast<char*>(&info_header), sizeof(info_header));
 
-    assert(info_header.info_size == 40u);
-    assert(info_header.planes == 1u);
-    assert(info_header.bit_pix == 24u);
-    assert(info_header.compression_type == 0u);
-    assert(info_header.hor_res == 11811);
-    assert(info_header.ver_res == 11811);
-    assert(info_header.use_colors == 0);
-    assert(info_header.sig_colors == 0x1000000);
+    if (ifs.fail()) {
+        return {};
+    }
 
+    bool check_info_header {
+        (info_header.info_size == 40u) &&
+        (info_header.planes == 1u) &&
+        (info_header.bit_pix == 24u) &&
+        (info_header.compression_type == 0u) &&
+        (info_header.hor_res == 11811) &&
+        (info_header.ver_res == 11811) &&
+        (info_header.use_colors == 0) &&
+        (info_header.sig_colors == 0x1000000)
+    };
+
+    if (!check_info_header) {
+        return {};
+    }
+    
     Image result(info_header.width, info_header.height, Color::Black());
     
     const int stride = GetBMPStride(info_header.width);
     vector<char> buffer(stride);
     for (int i{0}; i < info_header.height; ++i) {
         ifs.read(buffer.data(), stride);
+        if (ifs.fail()) {
+            return {};
+        }
         auto *line = result.GetLine(info_header.height - 1 - i);
         for (int j{0}; j < info_header.width; ++j) {
             line[j].b = static_cast<std::byte>(buffer[j * 3 + 0]); 
